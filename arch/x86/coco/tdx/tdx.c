@@ -37,6 +37,8 @@
 
 #define TDREPORT_SUBTYPE_0	0
 
+#define VTPM_BASE_ADDRESS 0xfed40000
+
 /* Called from __tdx_hypercall() for unrecoverable failure */
 noinstr void __tdx_hypercall_failed(void)
 {
@@ -757,10 +759,22 @@ static bool tdx_enc_status_change_finish(unsigned long vaddr, int numpages,
 	return true;
 }
 
+static bool tdp_is_private_mmio(u64 addr) {
+	/*
+	* For a TDP L2 guest, vTPM is emulated by the L1-VMM and
+	* must be mapped private.
+	*/
+	if (addr >= VTPM_BASE_ADDRESS &&
+	    addr < (VTPM_BASE_ADDRESS + PAGE_SIZE))
+		return true;
+
+	return false;
+}
+
 void __init tdx_early_init(void)
 {
 	u64 cc_mask;
-	u32 eax, sig[3];
+	u32 eax, ebx, ecx, edx, sig[3];
 
 	cpuid_count(TDX_CPUID_LEAF_ID, 0, &eax, &sig[0], &sig[2],  &sig[1]);
 
@@ -821,4 +835,11 @@ void __init tdx_early_init(void)
 	x86_cpuinit.parallel_bringup = false;
 
 	pr_info("Guest detected\n");
+
+	cpuid_count(TDX_CPUID_LEAF_ID, 1, &eax, &ebx, &ecx, &edx);
+
+	if (ebx & 0x1) {
+		x86_platform.hyper.is_private_mmio = tdp_is_private_mmio;
+		pr_info("TDP Guest detected\n");
+	}
 }
